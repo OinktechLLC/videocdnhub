@@ -4,30 +4,11 @@
     <meta charset="UTF-8">
     <meta name="robots" content="noindex">
     <title>Video CDN Player</title>
-    <!-- 1. Все скрипты из твоего рабочего плеера (playtubescript, Fingerprint2, MediaElement, Plyr) -->
+    <!-- Основные скрипты плеера -->
     <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
-    <script src="https://demo.playtubescript.com/themes/default/js/Fingerprintjs2/fingerprint2.js"></script>
-    <link rel="stylesheet" href="https://demo.playtubescript.com/themes/default/player/css/mediaelementplayer.min.css?version=3.1.1" />
-    <script src="https://demo.playtubescript.com/themes/default/player/js/mediaelement-and-player.min.js?version=3.1.1"></script>
-    <script src="https://demo.playtubescript.com/themes/default/player/plugins/quality/quality.min.js?version=3.1.1"></script>
-    <link rel="stylesheet" href="https://demo.playtubescript.com/themes/default/player/plugins/quality/quality.min.css?version=3.1.1" />
-    <script src="https://cdn.plyr.io/3.6.8/plyr.polyfilled.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <link rel="stylesheet" href="https://cdn.plyr.io/3.6.8/plyr.css" />
-      <script src="https://code.jquery.com/jquery-3.2.1.min.js"></script>
-    <script src="http://94.228.165.26:7777/oink.ru/themes/default/js/Fingerprintjs2/fingerprint2.js"></script>
-    <link rel="stylesheet" href="http://94.228.165.26:7777/oink.ru/themes/default/player/css/mediaelementplayer.min.css?version=3.1.1">
-    <script src="http://94.228.165.26:7777/oink.ru/themes/default/player/js/mediaelement-and-player.min.js?version=3.1.1"></script>
-    <script src="http://94.228.165.26:7777/oink.ru/themes/default/player/plugins/quality/quality.min.js?version=3.1.1"></script>
-    <link rel="stylesheet" href="http://94.228.165.26:7777/oink.ru/themes/default/player/plugins/quality/quality.min.css?version=3.1.1">
-    <script src="http://94.228.165.26:7777/oink.ru/themes/default/js/plyr.polyfilled.js"></script>
-    <link rel="stylesheet" href="http://94.228.165.26:7777/oink.ru/themes/default/player/css/plyr.css">
-    <script src="http://fillshowyt.temp.swtest.ru/themes/default/js/Fingerprintjs2/fingerprint2.js"></script>
-    <link rel="stylesheet" href="http://fillshowyt.temp.swtest.ru/themes/default/player/css/mediaelementplayer.min.css?version=3.1.1">
-    <script src="http://fillshowyt.temp.swtest.ru/themes/default/player/js/mediaelement-and-player.min.js?version=3.1.1"></script>
-    <script src="http://fillshowyt.temp.swtest.ru/themes/default/player/plugins/quality/quality.min.js?version=3.1.1"></script>
-    <link rel="stylesheet" href="http://fillshowyt.temp.swtest.ru/themes/default/player/plugins/quality/quality.min.css?version=3.1.1">
-    <script src="http://fillshowyt.temp.swtest.ru/themes/default/js/plyr.polyfilled.js"></script>
-    <link rel="stylesheet" href="http://fillshowyt.temp.swtest.ru/themes/default/player/css/plyr.css">
+    <script src="https://cdn.plyr.io/3.6.8/plyr.polyfilled.js"></script>
     
     <style>
         /* Твои стили — меню, фон, водяной знак и т.д. */
@@ -42,6 +23,10 @@
         .loader { position: absolute; top: 50%; left: 50%; width: 48px; height: 48px; border: 4px solid rgba(255,255,255,0.2); border-top: 4px solid #3b82f6; border-radius: 50%; animation: spin 0.8s linear infinite; transform: translate(-50%, -50%); display: none; z-index: 20; }
         @keyframes spin { 0% { transform: translate(-50%, -50%) rotate(0deg); } 100% { transform: translate(-50%, -50%) rotate(360deg); } }
         .watermark { position: absolute; z-index: 10; left: 20px; top: 20px; display: none; }
+        .controls-panel { position: absolute; top: 10px; right: 10px; z-index: 100; display: flex; gap: 10px; }
+        .btn { background: rgba(0,0,0,0.7); color: white; border: 1px solid #3b82f6; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn:hover { background: #3b82f6; }
+        .btn.active { background: #3b82f6; }
     </style>
 </head>
 <body>
@@ -55,6 +40,11 @@
         <div class="watermark">
             <a href="#" target="_blank"><img src="https://demo.playtubescript.com/themes/default/img/icon.png" alt='logo'></a>
         </div>
+        <div class="controls-panel">
+            <button class="btn" id="btn-direct">Прямой</button>
+            <button class="btn active" id="btn-proxy">Прокси</button>
+            <button class="btn" id="btn-retry">🔄 Повтор</button>
+        </div>
     </div>
     <div class="info-bar" id="streamInfo">✨ Загрузка плеера...</div>
 </div>
@@ -66,10 +56,23 @@
         const video = document.getElementById('my-video');
         const loader = document.getElementById('loader');
         const infoDiv = document.getElementById('streamInfo');
+        const btnDirect = document.getElementById('btn-direct');
+        const btnProxy = document.getElementById('btn-proxy');
+        const btnRetry = document.getElementById('btn-retry');
+        
         let player = null;
         let currentHls = null;
         let streamUrl = null;
+        let originalSrc = null;
+        let useProxy = true; // По умолчанию используем прокси
 
+        // Прокси-серверы для обхода блокировок
+        const proxyServers = [
+            'https://videocdnhub.tatnet.app/?src=',
+            'https://corsproxy.io/?',
+            'https://api.allorigins.win/raw?url='
+        ];
+        
         // Вспомогательные функции
         function formatTime(sec) {
             if (isNaN(sec)) return '00:00';
@@ -119,47 +122,111 @@
             }
         }
 
+        // Построение URL с прокси
+        function buildProxyUrl(url) {
+            if (!useProxy) {
+                return url;
+            }
+            // Используем первый прокси из списка
+            return proxyServers[0] + encodeURIComponent(url);
+        }
+
         // 3. ЗАГРУЖАЕМ И ВОССТАНАВЛИВАЕМ ВИДЕО (MP4 / HLS)
-        function loadMedia(url) {
+        function loadMedia(url, retryCount = 0) {
             if (!url) {
                 infoDiv.innerHTML = '❌ Ошибка: не указан параметр ?src= в URL';
                 return;
             }
-            streamUrl = url;
+            
+            const maxRetries = 3;
+            const proxyUrl = buildProxyUrl(url);
+            const displayUrl = useProxy ? proxyUrl : url;
+            
+            streamUrl = displayUrl;
             loader.style.display = 'block';
-            infoDiv.innerHTML = `⏳ Загрузка потока... (${url.substring(0, 70)}...)`;
+            infoDiv.innerHTML = `⏳ Загрузка потока... (${useProxy ? 'через прокси' : 'прямой'}): ${url.substring(0, 50)}...`;
 
             // Уничтожаем старый HLS и плеер
-            if (currentHls) { currentHls.destroy(); currentHls = null; }
-            if (player) { player.pause(); player.remove(); player = null; }
+            if (currentHls) { 
+                currentHls.destroy(); 
+                currentHls = null; 
+            }
+            if (player) { 
+                player.pause(); 
+                player.remove(); 
+                player = null; 
+            }
 
             // Обработка HLS (.m3u8)
             if (url.includes('.m3u8') || url.includes('m3u8?')) {
                 if (window.Hls && Hls.isSupported()) {
-                    currentHls = new Hls({ debug: false });
-                    currentHls.loadSource(url);
+                    currentHls = new Hls({ 
+                        debug: false,
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                        backBufferLength: 90,
+                        manifestLoadingTimeOut: 15000,
+                        levelLoadingTimeOut: 15000,
+                        fragLoadingTimeOut: 15000
+                    });
+                    
+                    currentHls.loadSource(displayUrl);
                     currentHls.attachMedia(video);
+                    
                     currentHls.on(Hls.Events.MANIFEST_PARSED, () => {
                         loader.style.display = 'none';
                         infoDiv.innerHTML = `▶ Играет: ${url.substring(0, 60)}...`;
                         video.play().catch(e => infoDiv.innerHTML = '🔇 Нажмите Play для запуска');
                         initPlayer();
                     });
+                    
                     currentHls.on(Hls.Events.ERROR, (ev, data) => {
                         if (data.fatal) {
                             console.error("HLS fatal error", data);
-                            loader.style.display = 'none';
-                            infoDiv.innerHTML = '❌ Ошибка HLS (возможно, ссылка устарела)';
+                            
+                            // Пробуем переключиться на другой режим
+                            if (retryCount < maxRetries) {
+                                retryCount++;
+                                infoDiv.innerHTML = `⚠️ Ошибка, попытка ${retryCount}/${maxRetries}...`;
+                                
+                                // Если использовали прокси - пробуем без него, и наоборот
+                                if (useProxy) {
+                                    useProxy = false;
+                                    btnProxy.classList.remove('active');
+                                    btnDirect.classList.add('active');
+                                } else {
+                                    useProxy = true;
+                                    btnDirect.classList.remove('active');
+                                    btnProxy.classList.add('active');
+                                }
+                                
+                                setTimeout(() => loadMedia(url, retryCount), 1000);
+                            } else {
+                                loader.style.display = 'none';
+                                infoDiv.innerHTML = '❌ Ошибка HLS (возможно, ссылка устарела или заблокирована). Попробуйте переключить режим прокси.';
+                            }
                         }
                     });
                 } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = url;
+                    video.src = displayUrl;
                     video.addEventListener('loadedmetadata', () => {
                         loader.style.display = 'none';
                         infoDiv.innerHTML = `▶ HLS (native): ${url.substring(0, 60)}...`;
                         video.play().catch(e=>null);
                         initPlayer();
-                    });
+                    }, { once: true });
+                    
+                    video.onerror = () => {
+                        if (retryCount < maxRetries) {
+                            retryCount++;
+                            useProxy = !useProxy;
+                            updateButtons();
+                            setTimeout(() => loadMedia(url, retryCount), 1000);
+                        } else {
+                            loader.style.display = 'none';
+                            infoDiv.innerHTML = '❌ Не удалось загрузить HLS поток';
+                        }
+                    };
                 } else {
                     loader.style.display = 'none';
                     infoDiv.innerHTML = '❌ Ваш браузер не поддерживает HLS';
@@ -167,16 +234,24 @@
             } 
             // Обычное видео (MP4 и т.д.)
             else {
-                video.src = url;
+                video.src = displayUrl;
                 video.load();
                 video.addEventListener('canplay', () => {
                     loader.style.display = 'none';
                     infoDiv.innerHTML = `▶ Воспроизведение: ${url.substring(0, 60)}...`;
                     initPlayer();
                 }, { once: true });
+                
                 video.onerror = () => {
-                    loader.style.display = 'none';
-                    infoDiv.innerHTML = '❌ Не удалось загрузить видео (неверный формат или ссылка)';
+                    if (retryCount < maxRetries) {
+                        retryCount++;
+                        useProxy = !useProxy;
+                        updateButtons();
+                        setTimeout(() => loadMedia(url, retryCount), 1000);
+                    } else {
+                        loader.style.display = 'none';
+                        infoDiv.innerHTML = '❌ Не удалось загрузить видео (неверный формат или ссылка)';
+                    }
                 };
             }
 
@@ -192,13 +267,32 @@
         function initPlayer() {
             if (player) return;
             try {
-                player = new MediaElementPlayer('my-video', {
-                    pluginPath: 'https://cdnjs.com/libraries/mediaelement-plugins/',
-                    shimScriptAccess: 'always',
-                    features: ['playpause', 'progress', 'current', 'duration', 'volume', 'fullscreen']
+                // Используем Plyr как основной плеер
+                player = new Plyr(video, {
+                    controls: ['play-large', 'play', 'progress', 'current-time', 'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'],
+                    autoplay: true
+                });
+                
+                player.on('ready', () => {
+                    console.log('Plyr ready');
+                });
+                
+                player.on('error', (e) => {
+                    console.warn("Plyr error", e);
                 });
             } catch(e) {
-                console.warn("MediaElement init error", e);
+                console.warn("Plyr init error", e);
+            }
+        }
+        
+        // Обновление кнопок
+        function updateButtons() {
+            if (useProxy) {
+                btnProxy.classList.add('active');
+                btnDirect.classList.remove('active');
+            } else {
+                btnDirect.classList.add('active');
+                btnProxy.classList.remove('active');
             }
         }
 
@@ -206,6 +300,7 @@
         async function main() {
             let url = getStreamFromUrl();
             if (url) {
+                originalSrc = url;
                 // Если ссылка уже зашифрована (параметр enc), то расшифровывать не нужно – просто грузим.
                 // ВАЖНО: декодирование enc происходит на сервере. В статике мы просто принимаем ссылку как есть.
                 // Но чтобы реализовать 24‑часовую защиту как в репозитории, надо создавать шифрованную версию.
@@ -235,6 +330,29 @@
                 loader.style.display = 'none';
             }
         }
+
+        // Обработчики кнопок
+        btnDirect.addEventListener('click', () => {
+            useProxy = false;
+            updateButtons();
+            if (originalSrc) {
+                loadMedia(originalSrc, 0);
+            }
+        });
+
+        btnProxy.addEventListener('click', () => {
+            useProxy = true;
+            updateButtons();
+            if (originalSrc) {
+                loadMedia(originalSrc, 0);
+            }
+        });
+
+        btnRetry.addEventListener('click', () => {
+            if (originalSrc) {
+                loadMedia(originalSrc, 0);
+            }
+        });
 
         // Водяной знак (по твоему коду)
         $(".video-area").hover(
